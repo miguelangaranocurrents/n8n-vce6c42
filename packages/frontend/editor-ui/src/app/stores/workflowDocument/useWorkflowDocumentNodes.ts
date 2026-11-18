@@ -574,7 +574,8 @@ export function useWorkflowDocumentNodes(deps: WorkflowDocumentNodesDeps) {
 		invalid: INodeCredentialsDetails;
 		type: string;
 	}) {
-		nodes.value.forEach((node: INodeUi) => {
+		let anyChanged = false;
+		nodes.value.forEach((node: INodeUi, nodeIndex: number) => {
 			const nodeCredentials: INodeCredentials | undefined = (node as unknown as INode).credentials;
 			if (!nodeCredentials?.[data.type]) {
 				return;
@@ -582,25 +583,28 @@ export function useWorkflowDocumentNodes(deps: WorkflowDocumentNodesDeps) {
 
 			const nodeCredentialDetails: INodeCredentialsDetails | string = nodeCredentials[data.type];
 
-			if (
-				typeof nodeCredentialDetails === 'string' &&
-				nodeCredentialDetails === data.invalid.name
-			) {
-				(node.credentials as INodeCredentials)[data.type] = data.credentials;
-				return;
+			let shouldReplace: boolean;
+			if (typeof nodeCredentialDetails === 'string') {
+				shouldReplace = nodeCredentialDetails === data.invalid.name;
+			} else if (nodeCredentialDetails.id === null) {
+				shouldReplace = nodeCredentialDetails.name === data.invalid.name;
+			} else {
+				shouldReplace = nodeCredentialDetails.id === data.invalid.id;
 			}
 
-			if (nodeCredentialDetails.id === null) {
-				if (nodeCredentialDetails.name === data.invalid.name) {
-					(node.credentials as INodeCredentials)[data.type] = data.credentials;
-				}
-				return;
-			}
+			if (!shouldReplace) return;
 
-			if (nodeCredentialDetails.id === data.invalid.id) {
-				(node.credentials as INodeCredentials)[data.type] = data.credentials;
-			}
+			// Replace through updateNodeAtIndex (not an in-place mutation) so the change
+			// is propagated and the workflow is marked dirty (and thus saved).
+			const changed = updateNodeAtIndex(nodeIndex, {
+				credentials: { ...nodeCredentials, [data.type]: data.credentials },
+			});
+			if (changed) anyChanged = true;
 		});
+
+		if (anyChanged) {
+			void onStateDirty.trigger();
+		}
 	}
 
 	// Assign credential to all nodes that support it but don't have it set
